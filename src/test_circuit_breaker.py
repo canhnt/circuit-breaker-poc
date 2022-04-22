@@ -1,4 +1,3 @@
-from http.client import HTTPConnection
 import unittest
 from circuit_breaker import CircuitBreaker, CircuitOpenError, CircuitOpenTimeout
 from unittest.mock import Mock
@@ -57,7 +56,31 @@ class test_circuitbreaker(unittest.TestCase):
         assert 4 == mock_client.request.call_count
 
     @patch('http.client.HTTPConnection')
-    def test_retries_until_timeout(self, mock_client):
+    def test_retries_while_conn_timeout(self, mock_client):
+        # arrange
+        resp501 = Mock()
+        resp501.status = 501
+        resp408 = Mock()
+        resp408.status = 408
+        resp200 = Mock()
+        resp200.status = 200
+
+        mock_client.getresponse.side_effect = [resp501, resp408, resp501, resp501, resp200]
+        # mock time.sleep to speedup
+        time.sleep = Mock()
+
+        # act
+        cb = CircuitBreaker(mock_client, 4, 20)
+        with self.assertRaises(CircuitOpenError):
+            cb.do_request('GET', '/bah')
+
+        # assert
+        calls = [call('GET', '/bah') for _ in range(4)]
+        mock_client.request.assert_has_calls(calls)
+        assert 4 == mock_client.request.call_count
+
+    @patch('http.client.HTTPConnection')
+    def test_retries_until_window_timeout(self, mock_client):
         # arrange
         resp501 = Mock()
         resp501.status = 501
